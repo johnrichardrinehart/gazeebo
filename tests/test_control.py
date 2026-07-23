@@ -33,6 +33,27 @@ class TrainingControlTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             asyncio.run(exercise(Path(temporary)))
 
+    def test_requesting_process_cannot_unlink_owner_socket(self) -> None:
+        """A short-lived command closes only control paths that it created."""
+
+        async def exercise(root: Path) -> None:
+            event = asyncio.Event()
+            path = root / "gazeebo" / "control.sock"
+            owner = TrainingControl(event, path)
+            requester = TrainingControl(asyncio.Event(), path)
+            await owner.start()
+            assert await request_training(path)
+            await requester.close()
+            assert path.exists()
+            event.clear()
+            assert await request_training(path)
+            assert event.is_set()
+            await owner.close()
+            assert not path.exists()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            asyncio.run(exercise(Path(temporary)))
+
     def test_absent_process_returns_false_without_creating_files(self) -> None:
         """A training command can become the foreground owner when no socket exists."""
         with tempfile.TemporaryDirectory() as temporary:

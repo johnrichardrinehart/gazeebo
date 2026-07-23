@@ -28,6 +28,7 @@ class TrainingControl:
         self.training_requested = training_requested
         self.path = path or control_path()
         self._server: asyncio.Server | None = None
+        self._owns_path = False
 
     async def start(self) -> None:
         """Create one owner-only socket for the foreground process."""
@@ -44,6 +45,7 @@ class TrainingControl:
                 self._handle,
                 path=self.path,
             )
+            self._owns_path = True
             self.path.chmod(_SOCKET_MODE)
             _validate_socket(self.path)
         except OSError as error:
@@ -53,10 +55,11 @@ class TrainingControl:
     async def close(self) -> None:
         """Close the server and remove its socket idempotently."""
         server, self._server = self._server, None
+        owns_path, self._owns_path = self._owns_path, False
         if server is not None:
             server.close()
             await server.wait_closed()
-        if self.path.exists() or self.path.is_symlink():
+        if owns_path and (self.path.exists() or self.path.is_symlink()):
             try:
                 _validate_socket(self.path)
                 self.path.unlink()
