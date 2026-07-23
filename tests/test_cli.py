@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import unittest
 from unittest.mock import patch
 
-from gazeebo.cli import _camera_device, _open_startup_resources, build_parser
+from gazeebo.cli import (
+    _camera_device,
+    _load_startup_inputs,
+    _open_startup_resources,
+    build_parser,
+)
 from gazeebo.game import GameConfig
+from gazeebo.state import TrainingState, TrainingStore, TrainingStoreError
 
 
 class CliTests(unittest.TestCase):
@@ -48,6 +55,64 @@ class CliTests(unittest.TestCase):
         """A zero interval remains available for explicit development tuning."""
         arguments = build_parser().parse_args(["--pointer-update-interval", "0"])
         assert arguments.pointer_update_interval == 0.0
+
+    def test_store_load_overlaps_portal_and_vision_startup(self) -> None:
+        """A slow local store cannot serialize independent authorization work."""
+        loading = threading.Event()
+        release = threading.Event()
+
+        class BlockingStore(TrainingStore):
+            def load(self) -> TrainingState:
+                loading.set()
+                assert release.wait(timeout=1.0)
+                return TrainingState()
+
+        async def open_resources(
+            _arguments: object,
+            _stop: asyncio.Event,
+        ) -> None:
+            await asyncio.to_thread(loading.wait)
+            release.set()
+
+        with patch("gazeebo.cli._open_startup_resources", side_effect=open_resources):
+            result = asyncio.run(
+                _load_startup_inputs(
+                    build_parser().parse_args([]),
+                    BlockingStore(ephemeral=True),
+                    asyncio.Event(),
+                )
+            )
+        assert result is None
+
+    def test_store_failure_cancels_parallel_startup(self) -> None:
+        """Unsafe state stops portal and camera startup instead of waiting for input."""
+        stopped = False
+
+        class BrokenStore(TrainingStore):
+            def load(self) -> TrainingState:
+                msg = "fixture store failure"
+                raise TrainingStoreError(msg)
+
+        async def open_resources(
+            _arguments: object,
+            stop: asyncio.Event,
+        ) -> None:
+            nonlocal stopped
+            await stop.wait()
+            stopped = True
+
+        with (
+            patch("gazeebo.cli._open_startup_resources", side_effect=open_resources),
+            self.assertRaisesRegex(TrainingStoreError, "fixture store failure"),
+        ):
+            asyncio.run(
+                _load_startup_inputs(
+                    build_parser().parse_args([]),
+                    BrokenStore(ephemeral=True),
+                    asyncio.Event(),
+                )
+            )
+        assert stopped
 
     def test_startup_stop_closes_parallel_camera_resources(self) -> None:
         """A signal during portal authorization cannot leak camera or vision state."""

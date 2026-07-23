@@ -187,6 +187,39 @@ async def _open_startup_resources(  # noqa: C901, PLR0912
     return pointer, resources[0], resources[1]
 
 
+async def _load_startup_inputs(
+    arguments: argparse.Namespace,
+    store: TrainingStore,
+    stop: asyncio.Event,
+) -> (
+    tuple[
+        TrainingState,
+        PortalPointerController,
+        OpenCVCamera,
+        OpenSeeFaceEstimator,
+    ]
+    | None
+):
+    """Load private state while portal and vision startup proceed independently."""
+    state_task = asyncio.create_task(asyncio.to_thread(store.load))
+    resources_task = asyncio.create_task(_open_startup_resources(arguments, stop))
+    await asyncio.wait((state_task, resources_task), return_when=asyncio.FIRST_EXCEPTION)
+    if state_task.done() and not state_task.cancelled() and state_task.exception() is not None:
+        stop.set()
+    state_result, resources_result = await asyncio.gather(
+        state_task,
+        resources_task,
+        return_exceptions=True,
+    )
+    if isinstance(state_result, BaseException):
+        raise state_result
+    if isinstance(resources_result, BaseException):
+        raise resources_result
+    if resources_result is None:
+        return None
+    return state_result, *resources_result
+
+
 def _needs_training(
     state: TrainingState,
     pointer: PortalPointerController,
@@ -231,15 +264,14 @@ async def _run(  # noqa: C901, PLR0911, PLR0912, PLR0915
         if arguments.command == "train" and await request_training():
             status.report(RuntimeStatus.STOPPED, "active session accepted training request")
             return 0
-        state = store.load()
         if stop.is_set():
             return 0
         await control.start()
         status.report(RuntimeStatus.AUTHORIZING)
-        resources = await _open_startup_resources(arguments, stop)
-        if resources is None:
+        startup = await _load_startup_inputs(arguments, store, stop)
+        if startup is None:
             return 0
-        pointer, camera, vision = resources
+        state, pointer, camera, vision = startup
         if arguments.debug_hud:
             hud = LayerShellDebugHud.create(pointer.regions)
         train_requested = arguments.command == "train"
