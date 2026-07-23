@@ -225,6 +225,29 @@ class ModelRouter:
         self._last_decision = decision
         return Point(x / used, y / used), decision
 
+    def with_validated_model(
+        self,
+        model: CalibrationModel,
+        cluster_id: str,
+        *,
+        replace_global: bool,
+    ) -> ModelRouter:
+        """Use the exact model measured by the terminal unseen batch."""
+        experts = tuple(
+            ContextExpert(expert.cluster, model)
+            if expert.cluster.cluster_id == cluster_id
+            else expert
+            for expert in self._experts
+        )
+        return ModelRouter(
+            model if replace_global else self._global,
+            experts,
+            camera_id=self._camera_id,
+            feature_schema=self._feature_schema,
+            topology_quality=self._quality,
+            config=self._config,
+        )
+
     def records(self) -> dict[str, dict[str, object]]:
         """Return serializable global and expert coefficients."""
         records = {"global": self._global.to_record()}
@@ -362,8 +385,33 @@ def build_router(
     if len(mapped) < MINIMUM_MODEL_TARGETS:
         msg = "stored training data do not contain three compatible targets"
         raise ValueError(msg)
-    global_model = CalibrationModel.fit([sample for _sequence, sample, _quality in mapped])
     quality = min(item[2] for item in mapped)
+    prefix = f"{camera_id}:{topology.topology_id}:"
+    stored_global = state.models.get(f"{prefix}global")
+    if stored_global is not None:
+        try:
+            global_model = CalibrationModel.from_record(stored_global)
+            exact_experts = [
+                ContextExpert(
+                    cluster,
+                    CalibrationModel.from_record(state.models[f"{prefix}{cluster.cluster_id}"]),
+                )
+                for cluster in state.clusters
+                if cluster.camera_id == camera_id
+                and cluster.feature_schema == feature_schema
+                and f"{prefix}{cluster.cluster_id}" in state.models
+            ]
+            return ModelRouter(
+                global_model,
+                exact_experts,
+                camera_id=camera_id,
+                feature_schema=feature_schema,
+                topology_quality=TopologyQuality.EXACT,
+                config=policy,
+            )
+        except (KeyError, TypeError, ValueError):
+            pass
+    global_model = CalibrationModel.fit([sample for _sequence, sample, _quality in mapped])
     by_sequence = {sequence: sample for sequence, sample, _item_quality in mapped}
     experts: list[ContextExpert] = []
     for cluster in state.clusters:

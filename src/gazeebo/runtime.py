@@ -9,7 +9,8 @@ import signal
 import statistics
 import sys
 import time
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from gazeebo.adaptation import TopologyQuality, make_stored_target
@@ -240,6 +241,11 @@ async def run_owned_session(  # noqa: C901, PLR0912, PLR0913, PLR0915
                     game_result.after.edge_error,
                     holdout=game_result.holdout_targets,
                     incumbent=incumbent,
+                    validated_model=(
+                        game_result.model
+                        if isinstance(game_result.model, CalibrationModel)
+                        else None
+                    ),
                 )
                 if persisted is not None:
                     model, state = persisted
@@ -319,6 +325,11 @@ async def run_owned_session(  # noqa: C901, PLR0912, PLR0913, PLR0915
                         game_result.after.edge_error,
                         holdout=game_result.holdout_targets,
                         incumbent=model,
+                        validated_model=(
+                            game_result.model
+                            if isinstance(game_result.model, CalibrationModel)
+                            else None
+                        ),
                     )
                     if persisted is not None:
                         model, state = persisted
@@ -500,9 +511,11 @@ def _persist_targets(  # noqa: PLR0913
     *,
     holdout: Sequence[CollectedTarget] = (),
     incumbent: GazePredictor | None = None,
+    validated_model: CalibrationModel | None = None,
 ) -> tuple[ModelRouter, TrainingState] | None:
     """Build and atomically commit one accepted persistent candidate."""
     candidate = copy.deepcopy(existing)
+    assigned_clusters: list[str] = []
     for collected in targets:
         persistent = make_stored_target(
             candidate.next_sequence,
@@ -514,13 +527,22 @@ def _persist_targets(  # noqa: PLR0913
             collected.target,
             collected.zone,
         )
-        add_target(candidate, persistent)
+        assigned_clusters.append(add_target(candidate, persistent))
     router = build_router(
         candidate,
         topology,
         camera_id=camera_id,
         feature_schema=feature_schema,
     )
+    dominant_cluster = (
+        Counter(assigned_clusters).most_common(1)[0][0] if assigned_clusters else None
+    )
+    if validated_model is not None and dominant_cluster is not None:
+        router = router.with_validated_model(
+            validated_model,
+            dominant_cluster,
+            replace_global=incumbent is None,
+        )
     if holdout:
         candidate_metrics = _score_collected(router, holdout, topology)
         incumbent_metrics = (
@@ -538,6 +560,17 @@ def _persist_targets(  # noqa: PLR0913
             return None
         median_error = candidate_metrics.median_error
         edge_error = candidate_metrics.edge_error
+    if dominant_cluster is not None:
+        candidate.clusters = [
+            replace(
+                cluster,
+                median_error=median_error,
+                edge_error=edge_error,
+            )
+            if cluster.cluster_id == dominant_cluster
+            else cluster
+            for cluster in candidate.clusters
+        ]
     prefix = f"{camera_id}:{topology.topology_id}:"
     candidate.models = {
         key: value for key, value in candidate.models.items() if not key.startswith(prefix)

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import tempfile
 import unittest
 from collections import deque
 from pathlib import Path
 
+from gazeebo.calibration import CalibrationModel, CalibrationSample
+from gazeebo.contexts import build_router
 from gazeebo.contracts import DisplayRegion, EyeObservation, RuntimeStatus
 from gazeebo.game import CollectedTarget, GameConfig
 from gazeebo.geometry import DisplayTopology, Point, calibration_targets
@@ -135,6 +138,48 @@ class PersistenceRuntimeTests(unittest.TestCase):
             point = router.predict((500.0, 350.0), (0.0, 0.5))
             assert 0.0 <= point.x < 1000.0
             assert 0.0 <= point.y < 700.0
+
+    def test_exact_restart_loads_the_terminally_validated_coefficients(self) -> None:
+        """Exact topology reuse does not replace measured coefficients by refitting."""
+        topology = DisplayTopology((DisplayRegion("stable", 0, 0, 1000, 700),))
+        targets = collected(topology)
+        validated = CalibrationModel.fit(
+            [
+                CalibrationSample(
+                    target.features,
+                    Point(
+                        topology.to_global(target.target).x + 40.0,
+                        topology.to_global(target.target).y + 20.0,
+                    ),
+                )
+                for target in targets
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            store = TrainingStore(Path(temporary) / "gazeebo" / "training-v1.json")
+            persisted = _persist_targets(
+                store,
+                TrainingState(),
+                topology,
+                "fixture-camera",
+                "gaze-v1",
+                targets,
+                80.0,
+                90.0,
+                validated_model=validated,
+            )
+            assert persisted is not None
+            before = persisted[0].predict((500.0, 350.0), (0.0, 0.5))
+            after = build_router(
+                store.load(),
+                topology,
+                camera_id="fixture-camera",
+                feature_schema="gaze-v1",
+            ).predict((500.0, 350.0), (0.0, 0.5))
+            assert math.isclose(after.x, before.x)
+            assert math.isclose(after.y, before.y)
+            assert after.x > 500.0
+            assert after.y > 350.0
 
     def test_failed_persistent_router_holdout_leaves_store_unchanged(self) -> None:
         """A refitted context model cannot save on the game model's proxy result."""
