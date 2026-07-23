@@ -308,6 +308,8 @@ async def _run(  # noqa: C901, PLR0911, PLR0912, PLR0915
         status.report(RuntimeStatus.GAME_ERROR, str(error))
         return 1
     except (CameraError, VisionError, TrackingError) as error:
+        if stop.is_set():
+            return 0
         status.report(RuntimeStatus.CAMERA_ERROR, str(error))
         return 1
     finally:
