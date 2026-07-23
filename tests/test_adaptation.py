@@ -11,7 +11,7 @@ from gazeebo.adaptation import (
     map_stored_target,
 )
 from gazeebo.contracts import DisplayRegion
-from gazeebo.geometry import DisplayTopology, PointerTarget
+from gazeebo.geometry import DisplayTopology, Point, PointerTarget
 
 if TYPE_CHECKING:
     from gazeebo.state import StoredTarget
@@ -46,6 +46,16 @@ class TopologyAdaptationTests(unittest.TestCase):
         assert mapped.quality is TopologyQuality.EXACT
         assert abs(mapped.point.x - 600.0) < 1e-6
         assert abs(mapped.point.y - 550.0) < 1e-6
+
+    def test_opaque_key_change_with_same_geometry_remains_exact(self) -> None:
+        """Session-local portal IDs do not invalidate unchanged logical geometry."""
+        source = DisplayTopology((DisplayRegion("old-stream", 100, 200, 1000, 700),))
+        sample = stored(source, PointerTarget("old-stream", 500.0, 350.0))
+        current = DisplayTopology((DisplayRegion("new-stream", 100, 200, 1000, 700),))
+        mapped = map_stored_target(sample, current)
+        assert mapped is not None
+        assert mapped.quality is TopologyQuality.EXACT
+        assert mapped.point == Point(600.0, 550.0)
 
     def test_resolution_and_position_change_remap_output_relative_label(self) -> None:
         """A stable output key survives logical movement and scaling."""
@@ -116,8 +126,8 @@ class TopologyAdaptationTests(unittest.TestCase):
         sample = stored(source, PointerTarget("old-left", 799.0, 300.0))
         current = DisplayTopology(
             (
-                DisplayRegion("new-left", 0, 0, 800, 600),
-                DisplayRegion("new-right", 1200, 0, 800, 600),
+                DisplayRegion("new-left", 0, 100, 800, 600),
+                DisplayRegion("new-right", 1200, 100, 800, 600),
             )
         )
         mapped = map_stored_target(sample, current)

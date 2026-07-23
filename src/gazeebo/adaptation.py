@@ -84,6 +84,15 @@ def map_stored_target(
 
     matched = next((output for output in current if output.key == source_output.key), None)
     if matched is None:
+        geometry_matches = [
+            output
+            for output in current
+            if (output.x, output.y, output.width, output.height)
+            == (source_output.x, source_output.y, source_output.width, source_output.height)
+        ]
+        if len(geometry_matches) == 1:
+            matched = geometry_matches[0]
+    if matched is None:
         source_size_matches = [
             output
             for output in target.outputs
@@ -135,8 +144,8 @@ def _same_topology(
     source: tuple[OutputDescriptor, ...],
     current: tuple[OutputDescriptor, ...],
 ) -> bool:
-    def key(item: OutputDescriptor) -> tuple[str, int, int, int, int]:
-        return item.key, item.x, item.y, item.width, item.height
+    def key(item: OutputDescriptor) -> tuple[int, int, int, int]:
+        return item.x, item.y, item.width, item.height
 
     return sorted(map(key, source)) == sorted(map(key, current))
 

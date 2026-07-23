@@ -44,8 +44,11 @@ class DisplayTopology:
             raise ValueError(msg)
         self._regions = regions
         identity = "\n".join(
-            f"{region.region_id}:{region.x}:{region.y}:{region.width}:{region.height}"
-            for region in sorted(regions, key=lambda item: item.region_id)
+            f"{region.x}:{region.y}:{region.width}:{region.height}"
+            for region in sorted(
+                regions,
+                key=lambda item: (item.x, item.y, item.width, item.height),
+            )
         )
         self._topology_id = hashlib.sha256(identity.encode()).hexdigest()
 

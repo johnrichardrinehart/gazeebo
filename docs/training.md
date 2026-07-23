@@ -22,13 +22,14 @@ The store also contains bounded context-cluster statistics, serialized global an
 
 ## Display topology adaptation
 
-The portal remains the authority for pointer access and logical geometry. A topology descriptor records each authorized region's opaque mapping identifier when available, logical size and position, and relative ordering. Target labels remain output-relative so resolution and position changes do not make every prior sample stale.
+The portal remains the authority for pointer access and logical geometry. A topology descriptor records each authorized region's opaque mapping identifier when available, logical size and position, and relative ordering. Exact topology identity uses the logical geometry rather than session-local portal IDs, so an unchanged layout can reload validated coefficients across authorizations. Target labels remain output-relative so resolution and position changes do not make every prior sample stale.
 
 Gazeebo matches stored and current outputs in this order:
 
 1. An unambiguous portal mapping identifier.
-2. A unique logical-size and relative-neighborhood match.
-3. No output match.
+2. The same unique logical geometry despite a changed opaque identifier.
+3. A unique logical-size and relative-neighborhood match.
+4. No output match.
 
 A strong match maps the stored normalized output target into the current region. Removed outputs contribute no samples. An added output has no local samples, but existing samples still fit the global and compatible context models over the current logical geometry. Samples without an unambiguous output match use their topology-bounds-normalized fallback label and are marked weak. Predictions always pass through authorized-union projection.
 

@@ -69,7 +69,9 @@ class GeometryTests(unittest.TestCase):
         """Stale calibration detects movement or resizing of authorized displays."""
         changed = DisplayTopology((DisplayRegion("selected", 0, 0, 1920, 1080),))
         same = DisplayTopology(self.topology.regions)
+        renamed = DisplayTopology((DisplayRegion("opaque-new-id", 3840, 360, 2560, 1440),))
         assert same.topology_id == self.topology.topology_id
+        assert renamed.topology_id == self.topology.topology_id
         assert changed.topology_id != self.topology.topology_id
 
     def test_multiple_regions_allow_roaming_and_clip_union_gaps(self) -> None:
