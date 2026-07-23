@@ -1,0 +1,130 @@
+"""Tests for reusing target labels across portal display topologies."""
+
+from __future__ import annotations
+
+import unittest
+from typing import TYPE_CHECKING
+
+from gazeebo.adaptation import (
+    TopologyQuality,
+    make_stored_target,
+    map_stored_target,
+)
+from gazeebo.contracts import DisplayRegion
+from gazeebo.geometry import DisplayTopology, PointerTarget
+
+if TYPE_CHECKING:
+    from gazeebo.state import StoredTarget
+
+
+def stored(
+    topology: DisplayTopology,
+    target: PointerTarget,
+) -> StoredTarget:
+    """Create one normalized persistent target."""
+    return make_stored_target(
+        0,
+        "camera-a",
+        "gaze-v1",
+        (0.1, 0.2),
+        (0.0, 0.1),
+        topology,
+        target,
+        "center",
+    )
+
+
+class TopologyAdaptationTests(unittest.TestCase):
+    """Lock exact, strong, weak, added, and removed-output behavior."""
+
+    def test_exact_topology_retains_global_target(self) -> None:
+        """An unchanged portal layout has measured-quality correspondence."""
+        topology = DisplayTopology((DisplayRegion("stable", 100, 200, 1000, 700),))
+        sample = stored(topology, PointerTarget("stable", 500.0, 350.0))
+        mapped = map_stored_target(sample, topology)
+        assert mapped is not None
+        assert mapped.quality is TopologyQuality.EXACT
+        assert abs(mapped.point.x - 600.0) < 1e-6
+        assert abs(mapped.point.y - 550.0) < 1e-6
+
+    def test_resolution_and_position_change_remap_output_relative_label(self) -> None:
+        """A stable output key survives logical movement and scaling."""
+        source = DisplayTopology((DisplayRegion("stable", 0, 0, 1000, 500),))
+        sample = stored(source, PointerTarget("stable", 750.0, 125.0))
+        current = DisplayTopology((DisplayRegion("stable", 2000, 300, 2000, 1000),))
+        mapped = map_stored_target(sample, current)
+        assert mapped is not None
+        assert mapped.quality is TopologyQuality.STRONG
+        assert 3499.0 < mapped.point.x < 3502.0
+        assert 549.0 < mapped.point.y < 551.0
+
+    def test_unique_size_matches_when_portal_key_changes(self) -> None:
+        """A unique geometry can retain an output despite an unstable stream ID."""
+        source = DisplayTopology(
+            (
+                DisplayRegion("old-a", 0, 0, 800, 600),
+                DisplayRegion("old-b", 800, 0, 1000, 700),
+            )
+        )
+        sample = stored(source, PointerTarget("old-b", 500.0, 350.0))
+        current = DisplayTopology(
+            (
+                DisplayRegion("new-a", 0, 100, 800, 600),
+                DisplayRegion("new-b", 800, 0, 1000, 700),
+            )
+        )
+        mapped = map_stored_target(sample, current)
+        assert mapped is not None
+        assert mapped.quality is TopologyQuality.STRONG
+        assert mapped.point.x == 1300.0
+
+    def test_removed_output_samples_are_excluded(self) -> None:
+        """Targets belonging to an absent output do not train the current model."""
+        source = DisplayTopology(
+            (
+                DisplayRegion("left", 0, 0, 800, 600),
+                DisplayRegion("right", 800, 0, 1000, 700),
+            )
+        )
+        sample = stored(source, PointerTarget("right", 500.0, 350.0))
+        current = DisplayTopology((DisplayRegion("left", 0, 0, 800, 600),))
+        assert map_stored_target(sample, current) is None
+
+    def test_added_output_keeps_existing_sample_but_marks_topology_weak(self) -> None:
+        """Existing evidence remains useful without claiming added-output precision."""
+        source = DisplayTopology((DisplayRegion("left", 0, 0, 800, 600),))
+        sample = stored(source, PointerTarget("left", 400.0, 300.0))
+        current = DisplayTopology(
+            (
+                DisplayRegion("left", 0, 0, 800, 600),
+                DisplayRegion("new", 800, 0, 1000, 700),
+            )
+        )
+        mapped = map_stored_target(sample, current)
+        assert mapped is not None
+        assert mapped.quality is TopologyQuality.WEAK
+        assert mapped.point.x == 400.0
+
+    def test_ambiguous_output_uses_bounds_fallback_and_union_projection(self) -> None:
+        """Duplicate geometry cannot force a guessed identity or a gap target."""
+        source = DisplayTopology(
+            (
+                DisplayRegion("old-left", 0, 0, 800, 600),
+                DisplayRegion("old-right", 1000, 0, 800, 600),
+            )
+        )
+        sample = stored(source, PointerTarget("old-left", 799.0, 300.0))
+        current = DisplayTopology(
+            (
+                DisplayRegion("new-left", 0, 0, 800, 600),
+                DisplayRegion("new-right", 1200, 0, 800, 600),
+            )
+        )
+        mapped = map_stored_target(sample, current)
+        assert mapped is not None
+        assert mapped.quality is TopologyQuality.WEAK
+        assert current.region_containing(mapped.point) is not None
+
+
+if __name__ == "__main__":
+    unittest.main()

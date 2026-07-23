@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+.direnv/
+.pre-commit-config.yaml
+result
+result-*

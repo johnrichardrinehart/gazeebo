@@ -1,0 +1,73 @@
+"""Tests for the opt-in Wayland layer-shell debug HUD."""
+
+from __future__ import annotations
+
+import asyncio
+import unittest
+from dataclasses import dataclass, field
+
+from gazeebo.hud import LayerShellDebugHud
+
+
+@dataclass(slots=True)
+class FakeSurface:
+    """Record HUD rendering without a graphical session."""
+
+    updates: list[tuple[str, float, float]] = field(default_factory=list)
+    closed: bool = False
+
+    def show(self, region_id: str, x: float, y: float) -> None:
+        """Record one rendered value."""
+        self.updates.append((region_id, x, y))
+
+    def close(self) -> None:
+        """Record cleanup."""
+        self.closed = True
+
+
+class HudTests(unittest.TestCase):
+    """Lock HUD content, rate limiting, and cleanup."""
+
+    def test_content_lists_every_authorized_region(self) -> None:
+        """Diagnostics retain the active region and full authorization set."""
+        surface = FakeSurface()
+        hud = LayerShellDebugHud(
+            surface,
+            clock=lambda: 10.0,
+            authorized_regions=("display-a", "display-b", "display-c"),
+        )
+        hud.set_model_context("global+context-4", "weak")
+        asyncio.run(hud.update("display-b", 300.0, 400.0))
+        assert surface.updates == [
+            (
+                "display-b; authorized: display-a, display-b, display-c; "
+                "model: global+context-4; topology: weak",
+                300.0,
+                400.0,
+            )
+        ]
+
+    def test_updates_at_most_once_per_second_and_removes_hud(self) -> None:
+        """Rapid pointer updates render no more than once per second."""
+        times = iter((10.0, 10.9, 11.0))
+        surface = FakeSurface()
+        hud = LayerShellDebugHud(surface, clock=lambda: next(times))
+
+        async def exercise() -> None:
+            await hud.update("display-a", 100.4, 200.6)
+            await hud.update("display-b", 300.0, 400.0)
+            await hud.update("display-b", 500.0, 600.0)
+            await hud.close()
+            await hud.close()
+
+        asyncio.run(exercise())
+
+        assert surface.updates == [
+            ("display-a", 100.4, 200.6),
+            ("display-b", 500.0, 600.0),
+        ]
+        assert surface.closed
+
+
+if __name__ == "__main__":
+    unittest.main()
