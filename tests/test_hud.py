@@ -36,12 +36,12 @@ class HudTests(unittest.TestCase):
             clock=lambda: 10.0,
             authorized_regions=("display-a", "display-b", "display-c"),
         )
-        hud.set_model_context("global+context-4", "weak")
+        hud.set_model_context("global+context-4", "weak", "inferred-weak")
         asyncio.run(hud.update("display-b", 300.0, 400.0))
         assert surface.updates == [
             (
                 "display-b; authorized: display-a, display-b, display-c; "
-                "model: global+context-4; topology: weak",
+                "model: global+context-4; confidence: inferred-weak; topology: weak",
                 300.0,
                 400.0,
             )

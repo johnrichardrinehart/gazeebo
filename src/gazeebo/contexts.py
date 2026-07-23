@@ -96,6 +96,15 @@ class RoutingDecision:
         """Return a stable human-readable blend label."""
         return "+".join(name for name, weight in self.weights if weight >= ROUTING_LABEL_WEIGHT)
 
+    @property
+    def confidence_label(self) -> str:
+        """Describe inferred compatibility without claiming measured accuracy."""
+        if self.out_of_distribution:
+            return "inferred-low"
+        if self.topology_quality is TopologyQuality.WEAK:
+            return "inferred-weak"
+        return "inferred-compatible"
+
 
 class ModelRouter:
     """Blend a global estimator with compatible context experts."""

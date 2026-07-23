@@ -84,12 +84,17 @@ class FakeHud:
     """Record opt-in pointer diagnostics and cleanup."""
 
     updates: list[tuple[str, float, float]] = field(default_factory=list)
-    model_context: tuple[str, str] = ("unselected", "unknown")
+    model_context: tuple[str, str, str] = ("unselected", "unknown", "unknown")
     closed: bool = False
 
-    def set_model_context(self, routing: str, topology_quality: str) -> None:
-        """Record safe routing and topology labels."""
-        self.model_context = (routing, topology_quality)
+    def set_model_context(
+        self,
+        routing: str,
+        topology_quality: str,
+        model_confidence: str,
+    ) -> None:
+        """Record safe inferred routing and quality labels."""
+        self.model_context = (routing, topology_quality, model_confidence)
 
     async def update(self, region_id: str, x: float, y: float) -> None:
         """Record one global pointer diagnostic."""

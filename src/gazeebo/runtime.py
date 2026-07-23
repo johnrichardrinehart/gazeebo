@@ -413,7 +413,10 @@ async def _prime_router(  # noqa: PLR0913
         msg = "could not infer a stable startup context"
         raise TrackingError(msg)
     decision = router.decide(aggregate_features(contexts))
-    status.report(RuntimeStatus.SELECTING_MODEL, decision.label)
+    status.report(
+        RuntimeStatus.SELECTING_MODEL,
+        f"{decision.label}; confidence {decision.confidence_label}",
+    )
     if decision.out_of_distribution:
         status.report(
             RuntimeStatus.TRAINING_RECOMMENDED,
@@ -694,9 +697,10 @@ def _set_hud_model_context(
         hud.set_model_context(
             decision.label,
             decision.topology_quality.name.lower(),
+            decision.confidence_label,
         )
     else:
-        hud.set_model_context(model.kind, "current-session")
+        hud.set_model_context(model.kind, "current-session", "session-only")
 
 
 async def _update_hud(

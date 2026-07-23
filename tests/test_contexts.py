@@ -125,6 +125,7 @@ class ContextTests(unittest.TestCase):
         )
         seated_point, seated = router.predict_with_decision((0.5,), (0.0, 0.5))
         assert "seated" in seated.label
+        assert seated.confidence_label == "inferred-compatible"
         assert seated_point.x < 500.0
 
         standing_point = seated_point
@@ -136,8 +137,21 @@ class ContextTests(unittest.TestCase):
 
         fallback_point, fallback = router.predict_with_decision((0.5,), (10.0, 10.0))
         assert fallback.out_of_distribution
+        assert fallback.confidence_label == "inferred-low"
         assert fallback.weights[0][0] == "global"
         assert 0.0 <= fallback_point.x <= 1000.0
+
+    def test_weak_topology_confidence_remains_explicitly_inferred(self) -> None:
+        """A mapped model cannot present topology compatibility as holdout accuracy."""
+        router = ModelRouter(
+            model(400.0),
+            (ContextExpert(cluster("near", 0.0), model(100.0)),),
+            camera_id="camera-a",
+            feature_schema="gaze-v1",
+            topology_quality=TopologyQuality.WEAK,
+        )
+        _point, decision = router.predict_with_decision((0.5,), (0.0, 0.5))
+        assert decision.confidence_label == "inferred-weak"
 
     def test_routing_weights_change_smoothly(self) -> None:
         """A small context boundary crossing cannot instantly replace all weight."""

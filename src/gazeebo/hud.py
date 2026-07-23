@@ -103,6 +103,7 @@ class LayerShellDebugHud:
         self._last_update: float | None = None
         self._routing = "unselected"
         self._topology_quality = "unknown"
+        self._model_confidence = "unknown"
         self._closed = False
 
     @classmethod
@@ -113,10 +114,16 @@ class LayerShellDebugHud:
             authorized_regions=tuple(region.region_id for region in regions),
         )
 
-    def set_model_context(self, routing: str, topology_quality: str) -> None:
+    def set_model_context(
+        self,
+        routing: str,
+        topology_quality: str,
+        model_confidence: str,
+    ) -> None:
         """Retain safe model labels for the next rate-limited redraw."""
         self._routing = routing
         self._topology_quality = topology_quality
+        self._model_confidence = model_confidence
 
     async def update(self, region_id: str, x: float, y: float) -> None:
         """Replace the HUD content at most once per one-second interval."""
@@ -130,7 +137,8 @@ class LayerShellDebugHud:
             authorized = ", ".join(self._authorized_regions)
             displayed_region = (
                 f"{region_id}; authorized: {authorized}; "
-                f"model: {self._routing}; topology: {self._topology_quality}"
+                f"model: {self._routing}; confidence: {self._model_confidence}; "
+                f"topology: {self._topology_quality}"
             )
         self._surface.show(displayed_region, x, y)
         self._last_update = now

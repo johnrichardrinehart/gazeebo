@@ -130,8 +130,13 @@ class PointerController(Protocol):
 class DebugHud(Protocol):
     """Display rate-limited pointer diagnostics when explicitly enabled."""
 
-    def set_model_context(self, routing: str, topology_quality: str) -> None:
-        """Set safe routing and topology labels without exposing feature values."""
+    def set_model_context(
+        self,
+        routing: str,
+        topology_quality: str,
+        model_confidence: str,
+    ) -> None:
+        """Set safe inferred routing and quality labels without feature values."""
 
     async def update(self, region_id: str, x: float, y: float) -> None:
         """Show the current authorized region and global logical coordinate."""
