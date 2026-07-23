@@ -301,8 +301,9 @@ class GameTests(unittest.TestCase):
         assert len(result.holdout_targets) == 5
         assert len(surface.targets) == 10
         states = [item[0] for item in status.reports]
-        assert states.count(RuntimeStatus.GAME_TRAINING) == 1
+        assert states.count(RuntimeStatus.GAME_TRAINING) == 2
         assert RuntimeStatus.TRAINING_RECOMMENDED in states
+        assert "retaining batch" in status.reports[-1][1]
 
     def test_prior_initial_targets_count_toward_invocation_maximum(self) -> None:
         """Initial anchors leave only complete unseen batches inside the 55-target cap."""
@@ -345,7 +346,7 @@ class GameTests(unittest.TestCase):
         assert result is not None
         assert not result.precision_met
         assert len(surface.targets) == 5
-        assert "total 10/10" in status.reports[-2][1]
+        assert any("total 10/10" in detail for _state, detail in status.reports)
 
     def test_unstable_samples_fail_in_finite_time_without_refitting(self) -> None:
         """Unstable gaze cannot train a model or loop forever."""

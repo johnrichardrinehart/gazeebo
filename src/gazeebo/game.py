@@ -452,7 +452,7 @@ def game_metrics(measurements: Sequence[TargetMeasurement]) -> GameMetrics:
     )
 
 
-async def run_adaptive_game(  # noqa: PLR0913
+async def run_adaptive_game(  # noqa: PLR0913, PLR0915
     camera: CameraCapture,
     vision: VisionEstimator,
     pointer: PointerController,
@@ -481,6 +481,10 @@ async def run_adaptive_game(  # noqa: PLR0913
     incumbent = incumbent_model or initial_model
     accepted_targets: list[CollectedTarget] = []
     rounds: list[GameMetrics] = []
+    best_model: GazePredictor | None = None
+    best_result: _ValidationResult | None = None
+    best_batch = 0
+    best_score = (math.inf, math.inf)
     if target_offset < 0 or target_offset % config.batch_size != 0:
         msg = "game target offset must be a non-negative batch multiple"
         raise ValueError(msg)
@@ -547,6 +551,15 @@ async def run_adaptive_game(  # noqa: PLR0913
             ),
         )
         must_adapt = force_adaptation and not accepted_targets
+        score = (
+            max(result.metrics.median_error, result.metrics.edge_error),
+            result.metrics.median_error + result.metrics.edge_error,
+        )
+        if accepted and not must_adapt and score < best_score:
+            best_model = model
+            best_result = result
+            best_batch = batch_number
+            best_score = score
         if precision_met and accepted and not must_adapt:
             return GameResult(
                 model,
@@ -567,12 +580,30 @@ async def run_adaptive_game(  # noqa: PLR0913
                 f"after {target_offset + presented} circles"
             )
             status.report(RuntimeStatus.TRAINING_RECOMMENDED, message)
+            if best_model is None or best_result is None:
+                return GameResult(
+                    incumbent,
+                    tuple(rounds),
+                    precision_met=False,
+                    persistent_accepted=False,
+                )
+            status.report(
+                RuntimeStatus.GAME_TRAINING,
+                (
+                    f"retaining batch {best_batch} model with "
+                    f"{best_result.metrics.median_error:.0f}px median and "
+                    f"{best_result.metrics.edge_error:.0f}px edge error"
+                ),
+            )
+            best_holdout = set(best_result.targets)
             return GameResult(
-                model,
+                best_model,
                 tuple(rounds),
                 precision_met=False,
-                accepted_targets=tuple(accepted_targets),
-                holdout_targets=result.targets,
+                accepted_targets=tuple(
+                    target for target in accepted_targets if target not in best_holdout
+                ),
+                holdout_targets=best_result.targets,
                 persistent_accepted=True,
             )
         status.report(
